@@ -1,7 +1,9 @@
 #include "GraphicsResources.h"
-#include "FileSystemUtils.h"
+
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "FileSystemUtils.h"
 
 // Used to load PNG data
 extern "C"
@@ -22,7 +24,7 @@ extern "C"
 	);
 }
 
-SDL_Surface* LoadImage(const char *filename, bool noBlend = true, bool noAlpha = false)
+static SDL_Surface* LoadImage(const char *filename, bool noBlend = true, bool noAlpha = false)
 {
 	//Temporary storage for the image that's loaded
 	SDL_Surface* loadedImage = NULL;
@@ -34,7 +36,7 @@ SDL_Surface* LoadImage(const char *filename, bool noBlend = true, bool noAlpha =
 
 	unsigned char *fileIn = NULL;
 	size_t length = 0;
-	FILESYSTEM_loadFileToMemory(filename, &fileIn, &length);
+	FILESYSTEM_loadAssetToMemory(filename, &fileIn, &length, false);
 	if (noAlpha)
 	{
 		lodepng_decode24(&data, &width, &height, fileIn, length);
@@ -65,7 +67,7 @@ SDL_Surface* LoadImage(const char *filename, bool noBlend = true, bool noAlpha =
 			0
 		);
 		SDL_FreeSurface( loadedImage );
-		free(data);
+		SDL_free(data);
 		if (noBlend)
 		{
 			SDL_SetSurfaceBlendMode(optimizedImage, SDL_BLENDMODE_BLEND);
@@ -74,6 +76,7 @@ SDL_Surface* LoadImage(const char *filename, bool noBlend = true, bool noAlpha =
 	}
 	else
 	{
+		SDL_free(data);
 		fprintf(stderr,"Image not found: %s\n", filename);
 		SDL_assert(0 && "Image not found! See stderr.");
 		return NULL;
@@ -89,7 +92,6 @@ void GraphicsResources::init(void)
 	im_sprites =		LoadImage("graphics/sprites.png");
 	im_flipsprites =	LoadImage("graphics/flipsprites.png");
 	im_bfont =		LoadImage("graphics/font.png");
-	im_bfontmask =		LoadImage("graphics/fontmask.png");
 	im_teleporter =		LoadImage("graphics/teleporter.png");
 
 	im_image0 =		LoadImage("graphics/levelcomplete.png", false);
@@ -108,6 +110,33 @@ void GraphicsResources::init(void)
 }
 
 
-GraphicsResources::~GraphicsResources(void)
+void GraphicsResources::destroy(void)
 {
+#define CLEAR(img) \
+	SDL_FreeSurface(img); \
+	img = NULL;
+
+	CLEAR(im_tiles);
+	CLEAR(im_tiles2);
+	CLEAR(im_tiles3);
+	CLEAR(im_entcolours);
+	CLEAR(im_sprites);
+	CLEAR(im_flipsprites);
+	CLEAR(im_bfont);
+	CLEAR(im_teleporter);
+
+	CLEAR(im_image0);
+	CLEAR(im_image1);
+	CLEAR(im_image2);
+	CLEAR(im_image3);
+	CLEAR(im_image4);
+	CLEAR(im_image5);
+	CLEAR(im_image6);
+	CLEAR(im_image7);
+	CLEAR(im_image8);
+	CLEAR(im_image9);
+	CLEAR(im_image10);
+	CLEAR(im_image11);
+	CLEAR(im_image12);
+#undef CLEAR
 }

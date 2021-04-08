@@ -1,11 +1,10 @@
 #ifndef KEYPOLL_H
 #define KEYPOLL_H
 
+#include <map> // FIXME: I should feel very bad for using C++ -flibit
+#include <SDL.h>
 #include <string>
 #include <vector>
-#include <map> // FIXME: I should feel very bad for using C++ -flibit
-
-#include "SDL.h"
 
 enum Kybrd
 {
@@ -38,37 +37,32 @@ public:
 
 	bool resetWindow;
 
-	bool escapeWasPressedPreviously;
-	bool quitProgram;
-	bool toggleFullscreen;
+	void toggleFullscreen(void);
 
 	int sensitivity;
 
-	void setSensitivity(int _value);
+	int inline getThreshold(void);
 
-	KeyPoll();
+	KeyPoll(void);
 
-	void enabletextentry();
+	void enabletextentry(void);
 
-	void disabletextentry();
+	void disabletextentry(void);
 
-	void Poll();
+	void Poll(void);
 
 	bool isDown(SDL_Keycode key);
 
-	bool isUp(SDL_Keycode key);
-
 	bool isDown(std::vector<SDL_GameControllerButton> buttons);
 	bool isDown(SDL_GameControllerButton button);
-	bool controllerButtonDown();
+	bool controllerButtonDown(void);
 	bool controllerWantsLeft(bool includeVert);
 	bool controllerWantsRight(bool includeVert);
 
 	int leftbutton, rightbutton, middlebutton;
 	int mx, my;
 
-	bool textentrymode;
-	int keyentered, keybufferlen;
+	bool textentry(void);
 	bool pressedbackspace;
 	std::string keybuffer;
 
@@ -78,10 +72,11 @@ private:
 	std::map<SDL_JoystickID, SDL_GameController*> controllers;
 	std::map<SDL_GameControllerButton, bool> buttonmap;
 	int xVel, yVel;
-	bool useFullscreenSpaces;
 	Uint32 wasFullscreen;
 };
 
+#ifndef KEY_DEFINITION
 extern KeyPoll key;
+#endif
 
 #endif /* KEYPOLL_H */

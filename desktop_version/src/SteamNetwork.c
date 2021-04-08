@@ -1,3 +1,7 @@
+#include "MakeAndPlay.h"
+
+#ifndef MAKEANDPLAY
+
 #include <stdio.h>
 #include <stdint.h>
 #include <SDL.h>
@@ -21,12 +25,12 @@
 
 /* Function Pointer Types */
 
-typedef uint8_t (*SteamAPI_InitFunc)();
-typedef void (*SteamAPI_ShutdownFunc)();
-typedef void (*SteamAPI_RunCallbacksFunc)();
+typedef uint8_t (*SteamAPI_InitFunc)(void);
+typedef void (*SteamAPI_ShutdownFunc)(void);
+typedef void (*SteamAPI_RunCallbacksFunc)(void);
 typedef intptr_t (*SteamInternal_CreateInterfaceFunc)(const char*);
-typedef int32_t (*SteamAPI_GetHSteamUserFunc)();
-typedef int32_t (*SteamAPI_GetHSteamPipeFunc)();
+typedef int32_t (*SteamAPI_GetHSteamUserFunc)(void);
+typedef int32_t (*SteamAPI_GetHSteamPipeFunc)(void);
 typedef intptr_t (*SteamAPI_ISteamClient_GetISteamUserStatsFunc)(
 	intptr_t,
 	int32_t,
@@ -72,7 +76,7 @@ DEFINE_FUNC(SteamAPI_ISteamUserStats_SetAchievement)
 
 /* Clean up after ourselves... */
 
-static void ClearPointers()
+static void ClearPointers(void)
 {
 	SDL_UnloadObject(libHandle);
 	libHandle = NULL;
@@ -93,7 +97,7 @@ static void ClearPointers()
 
 /* NETWORK API Implementation */
 
-int32_t STEAM_init()
+int32_t STEAM_init(void)
 {
 #if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__HAIKU__) || defined(__DragonFly__)
 	return 0;
@@ -163,7 +167,7 @@ int32_t STEAM_init()
 	return 1;
 }
 
-void STEAM_shutdown()
+void STEAM_shutdown(void)
 {
 	if (libHandle)
 	{
@@ -172,7 +176,7 @@ void STEAM_shutdown()
 	}
 }
 
-void STEAM_update()
+void STEAM_update(void)
 {
 	if (libHandle)
 	{
@@ -218,3 +222,5 @@ void STEAM_setAchievementProgress(const char *name, int32_t stat)
 		SteamAPI_ISteamUserStats_StoreStats(steamUserStats);
 	}
 }
+
+#endif /* MAKEANDPLAY */

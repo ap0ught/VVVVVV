@@ -1,10 +1,10 @@
 #ifndef PRELOADER_H
 #define PRELOADER_H
 
-#include "Graphics.h"
-#include "Game.h"
-#include "UtilityClass.h"
+void preloaderinput(void);
 
-void preloaderrender();
+void preloaderrender(void);
+
+void preloaderrenderfixed(void);
 
 #endif /* PRELOADER_H */

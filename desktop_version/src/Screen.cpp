@@ -1,9 +1,10 @@
 #include "Screen.h"
 
+#include <SDL.h>
+#include <stdio.h>
+
 #include "FileSystemUtils.h"
 #include "GraphicsUtil.h"
-
-#include <stdlib.h>
 
 // Used to create the window icon
 extern "C"
@@ -17,37 +18,120 @@ extern "C"
 	);
 }
 
-Screen::Screen()
+ScreenSettings::ScreenSettings(void)
+{
+	windowWidth = 320;
+	windowHeight = 240;
+	fullscreen = false;
+	useVsync = false;
+	stretch = 0;
+	linearFilter = false;
+	badSignal = false;
+}
+
+void Screen::init(const ScreenSettings& settings)
 {
 	m_window = NULL;
 	m_renderer = NULL;
 	m_screenTexture = NULL;
 	m_screen = NULL;
-	isWindowed = true;
-	stretchMode = 0;
-	isFiltered = false;
+	isWindowed = !settings.fullscreen;
+	stretchMode = settings.stretch;
+	isFiltered = settings.linearFilter;
+	vsync = settings.useVsync;
 	filterSubrect.x = 1;
 	filterSubrect.y = 1;
 	filterSubrect.w = 318;
 	filterSubrect.h = 238;
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+
+	SDL_SetHintWithPriority(
+		SDL_HINT_RENDER_SCALE_QUALITY,
+		isFiltered ? "linear" : "nearest",
+		SDL_HINT_OVERRIDE
+	);
+	SDL_SetHintWithPriority(
+		SDL_HINT_RENDER_VSYNC,
+		vsync ? "1" : "0",
+		SDL_HINT_OVERRIDE
+	);
 
 	// Uncomment this next line when you need to debug -flibit
 	// SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, "software", SDL_HINT_OVERRIDE);
+	// FIXME: m_renderer is also created in resetRendererWorkaround()!
 	SDL_CreateWindowAndRenderer(
 		640,
 		480,
-		SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE,
+		SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI,
 		&m_window,
 		&m_renderer
 	);
 	SDL_SetWindowTitle(m_window, "VVVVVV");
 
+	LoadIcon();
+
+	// FIXME: This surface should be the actual backbuffer! -flibit
+	m_screen = SDL_CreateRGBSurface(
+		0,
+		320,
+		240,
+		32,
+		0x00FF0000,
+		0x0000FF00,
+		0x000000FF,
+		0xFF000000
+	);
+	// ALSO FIXME: This SDL_CreateTexture() is duplicated twice in this file!
+	m_screenTexture = SDL_CreateTexture(
+		m_renderer,
+		SDL_PIXELFORMAT_ARGB8888,
+		SDL_TEXTUREACCESS_STREAMING,
+		320,
+		240
+	);
+
+	badSignalEffect = settings.badSignal;
+
+	ResizeScreen(settings.windowWidth, settings.windowHeight);
+}
+
+void Screen::destroy(void)
+{
+#define X(CLEANUP, POINTER) \
+	CLEANUP(POINTER); \
+	POINTER = NULL;
+
+	/* Order matters! */
+	X(SDL_DestroyTexture, m_screenTexture);
+	X(SDL_FreeSurface, m_screen);
+	X(SDL_DestroyRenderer, m_renderer);
+	X(SDL_DestroyWindow, m_window);
+
+#undef X
+}
+
+void Screen::GetSettings(ScreenSettings* settings)
+{
+	int width, height;
+	GetWindowSize(&width, &height);
+
+	settings->windowWidth = width;
+	settings->windowHeight = height;
+
+	settings->fullscreen = !isWindowed;
+	settings->useVsync = vsync;
+	settings->stretch = stretchMode;
+	settings->linearFilter = isFiltered;
+	settings->badSignal = badSignalEffect;
+}
+
+void Screen::LoadIcon(void)
+{
+#ifndef __APPLE__
 	unsigned char *fileIn = NULL;
 	size_t length = 0;
 	unsigned char *data;
 	unsigned int width, height;
-	FILESYSTEM_loadFileToMemory("VVVVVV.png", &fileIn, &length);
+	FILESYSTEM_loadAssetToMemory("VVVVVV.png", &fileIn, &length, false);
 	lodepng_decode24(&data, &width, &height, fileIn, length);
 	FILESYSTEM_freeMemory(&fileIn);
 	SDL_Surface *icon = SDL_CreateRGBSurfaceFrom(
@@ -63,28 +147,8 @@ Screen::Screen()
 	);
 	SDL_SetWindowIcon(m_window, icon);
 	SDL_FreeSurface(icon);
-	free(data);
-
-	// FIXME: This surface should be the actual backbuffer! -flibit
-	m_screen = SDL_CreateRGBSurface(
-		0,
-		320,
-		240,
-		32,
-		0x00FF0000,
-		0x0000FF00,
-		0x000000FF,
-		0xFF000000
-	);
-	m_screenTexture = SDL_CreateTexture(
-		m_renderer,
-		SDL_PIXELFORMAT_ARGB8888,
-		SDL_TEXTUREACCESS_STREAMING,
-		320,
-		240
-	);
-
-	badSignalEffect = false;
+	SDL_free(data);
+#endif /* __APPLE__ */
 }
 
 void Screen::ResizeScreen(int x, int y)
@@ -124,7 +188,7 @@ void Screen::ResizeScreen(int x, int y)
 	if (stretchMode == 1)
 	{
 		int winX, winY;
-		SDL_GetWindowSize(m_window, &winX, &winY);
+		GetWindowSize(&winX, &winY);
 		int result = SDL_RenderSetLogicalSize(m_renderer, winX, winY);
 		if (result != 0)
 		{
@@ -151,9 +215,66 @@ void Screen::ResizeScreen(int x, int y)
 	SDL_ShowWindow(m_window);
 }
 
+void Screen::ResizeToNearestMultiple(void)
+{
+	int w, h;
+	GetWindowSize(&w, &h);
+
+	// Check aspect ratio first
+	bool using_width;
+	int usethisdimension, usethisratio;
+
+	if ((float) w / (float) h > 4.0 / 3.0)
+	{
+		// Width is bigger, so it's limited by height
+		usethisdimension = h;
+		usethisratio = 240;
+		using_width = false;
+	}
+	else
+	{
+		// Height is bigger, so it's limited by width. Or we're exactly 4:3 already
+		usethisdimension = w;
+		usethisratio = 320;
+		using_width = true;
+	}
+
+	int floor = (usethisdimension / usethisratio) * usethisratio;
+	int ceiling = floor + usethisratio;
+
+	int final_dimension;
+
+	if (usethisdimension - floor < ceiling - usethisdimension)
+	{
+		// Floor is nearest
+		final_dimension = floor;
+	}
+	else
+	{
+		// Ceiling is nearest. Or we're exactly on a multiple already
+		final_dimension = ceiling;
+	}
+
+	if (final_dimension == 0)
+	{
+		// We're way too small!
+		ResizeScreen(320, 240);
+		return;
+	}
+
+	if (using_width)
+	{
+		ResizeScreen(final_dimension, final_dimension / 4 * 3);
+	}
+	else
+	{
+		ResizeScreen(final_dimension * 4 / 3, final_dimension);
+	}
+}
+
 void Screen::GetWindowSize(int* x, int* y)
 {
-	SDL_GetWindowSize(m_window, x, y);
+	SDL_GetRendererOutputSize(m_renderer, x, y);
 }
 
 void Screen::UpdateScreen(SDL_Surface* buffer, SDL_Rect* rect )
@@ -169,7 +290,7 @@ void Screen::UpdateScreen(SDL_Surface* buffer, SDL_Rect* rect )
 	}
 
 
-	FillRect(m_screen, 0x000);
+	ClearSurface(m_screen);
 	BlitSurfaceStandard(buffer,NULL,m_screen,rect);
 
 	if(badSignalEffect)
@@ -179,12 +300,12 @@ void Screen::UpdateScreen(SDL_Surface* buffer, SDL_Rect* rect )
 
 }
 
-const SDL_PixelFormat* Screen::GetFormat()
+const SDL_PixelFormat* Screen::GetFormat(void)
 {
 	return m_screen->format;
 }
 
-void Screen::FlipScreen()
+void Screen::FlipScreen(void)
 {
 	SDL_UpdateTexture(
 		m_screenTexture,
@@ -200,25 +321,29 @@ void Screen::FlipScreen()
 	);
 	SDL_RenderPresent(m_renderer);
 	SDL_RenderClear(m_renderer);
-	SDL_FillRect(m_screen, NULL, 0x00000000);
+	ClearSurface(m_screen);
 }
 
-void Screen::toggleFullScreen()
+void Screen::toggleFullScreen(void)
 {
 	isWindowed = !isWindowed;
 	ResizeScreen(-1, -1);
 }
 
-void Screen::toggleStretchMode()
+void Screen::toggleStretchMode(void)
 {
 	stretchMode = (stretchMode + 1) % 3;
 	ResizeScreen(-1, -1);
 }
 
-void Screen::toggleLinearFilter()
+void Screen::toggleLinearFilter(void)
 {
 	isFiltered = !isFiltered;
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, isFiltered ? "linear" : "nearest");
+	SDL_SetHintWithPriority(
+		SDL_HINT_RENDER_SCALE_QUALITY,
+		isFiltered ? "linear" : "nearest",
+		SDL_HINT_OVERRIDE
+	);
 	SDL_DestroyTexture(m_screenTexture);
 	m_screenTexture = SDL_CreateTexture(
 		m_renderer,
@@ -227,4 +352,50 @@ void Screen::toggleLinearFilter()
 		320,
 		240
 	);
+}
+
+void Screen::resetRendererWorkaround(void)
+{
+	SDL_SetHintWithPriority(
+		SDL_HINT_RENDER_VSYNC,
+		vsync ? "1" : "0",
+		SDL_HINT_OVERRIDE
+	);
+
+	/* FIXME: This exists because SDL_HINT_RENDER_VSYNC is not dynamic!
+	 * As a result, our only workaround is to tear down the renderer
+	 * and recreate everything so that it can process the variable.
+	 * -flibit
+	 */
+
+	if (m_renderer == NULL)
+	{
+		/* We haven't made it to init yet, don't worry about it */
+		return;
+	}
+
+	SDL_RendererInfo renderInfo;
+	SDL_GetRendererInfo(m_renderer, &renderInfo);
+	bool curVsync = (renderInfo.flags & SDL_RENDERER_PRESENTVSYNC) != 0;
+	if (vsync == curVsync)
+	{
+		return;
+	}
+
+	SDL_DestroyTexture(m_screenTexture);
+	SDL_DestroyRenderer(m_renderer);
+
+	m_renderer = SDL_CreateRenderer(m_window, -1, 0);
+	m_screenTexture = SDL_CreateTexture(
+		m_renderer,
+		SDL_PIXELFORMAT_ARGB8888,
+		SDL_TEXTUREACCESS_STREAMING,
+		320,
+		240
+	);
+
+	/* Ugh, have to make sure to re-apply graphics options after doing the
+	 * above, otherwise letterbox/integer won't be applied...
+	 */
+	ResizeScreen(-1, -1);
 }

@@ -6,7 +6,7 @@ VVVVVV's official desktop versions are built with the following environments:
 - macOS: Xcode CLT, currently targeting 10.9 SDK
 - GNU/Linux: CentOS 7
 
-The engine depends solely on [SDL2](https://libsdl.org/) and
+The engine depends solely on [SDL2](https://libsdl.org/) 2.0.14+ and
 [SDL2_mixer](https://www.libsdl.org/projects/SDL_mixer/). All other dependencies
 are statically linked into the engine. The development libraries for Windows can
 be downloaded from their respective websites, Linux developers can find the dev
@@ -56,6 +56,11 @@ file, [get in touch](http://distractionware.com/email/)!)
 
 A Word About Compiler Quirks
 ----------------------------
+
+_(Note: This section only applies to version 2.2 of the source code, which is
+the initial commit of this repository. Since then, much hard work has been put
+in to fix many undefined behaviors. If you're compiling the latest version of
+the source code, ignore this section.)_
 
 This engine is _super_ fussy about optimization levels and runtime checks. In
 particular, the Windows version _absolutely positively must_ be compiled in

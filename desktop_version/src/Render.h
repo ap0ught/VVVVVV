@@ -1,23 +1,16 @@
 #ifndef RENDER_H
 #define RENDER_H
 
-#include "Graphics.h"
-#include "UtilityClass.h"
-#include "Maths.h"
-#include "Entity.h"
-#include "Map.h"
-#include "Script.h"
+void titlerender(void);
 
-void titlerender();
+void gamerender(void);
 
-void gamerender();
+void maprender(void);
 
-void maprender();
+void teleporterrender(void);
 
-void teleporterrender();
+void gamecompleterender(void);
 
-void gamecompleterender();
-
-void gamecompleterender2();
+void gamecompleterender2(void);
 
 #endif /* RENDER_H */

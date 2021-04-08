@@ -1,80 +1,97 @@
+#define KEY_DEFINITION
 #include "KeyPoll.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <utf8/unchecked.h>
 
-void KeyPoll::setSensitivity(int _value)
+#include "Exit.h"
+#include "Game.h"
+#include "Graphics.h"
+#include "Music.h"
+
+int inline KeyPoll::getThreshold(void)
 {
-	switch (_value)
+	switch (sensitivity)
 	{
-		case 0:
-			sensitivity = 28000;
-			break;
-		case 1:
-			sensitivity = 16000;
-			break;
-		case 2:
-			sensitivity = 8000;
-			break;
-		case 3:
-			sensitivity = 4000;
-			break;
-		case 4:
-			sensitivity = 2000;
-			break;
+	case 0:
+		return 28000;
+	case 1:
+		return 16000;
+	case 2:
+		return 8000;
+	case 3:
+		return 4000;
+	case 4:
+		return 2000;
 	}
+
+	return 8000;
 
 }
 
-KeyPoll::KeyPoll()
+KeyPoll::KeyPoll(void)
 {
 	xVel = 0;
 	yVel = 0;
-	setSensitivity(2);
+	// 0..5
+	sensitivity = 2;
 
-	quitProgram = 0;
-	textentrymode=true;
 	keybuffer="";
 	leftbutton=0; rightbutton=0; middlebutton=0;
 	mx=0; my=0;
 	resetWindow = 0;
-	toggleFullscreen = false;
 	pressedbackspace=false;
 
-	useFullscreenSpaces = false;
-	if (strcmp(SDL_GetPlatform(), "Mac OS X") == 0)
-	{
-		useFullscreenSpaces = true;
-		const char *hint = SDL_GetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES);
-		if (hint != NULL)
-		{
-			useFullscreenSpaces = (strcmp(hint, "1") == 0);
-		}
-	}
-
 	linealreadyemptykludge = false;
+
+	isActive = true;
 }
 
-void KeyPoll::enabletextentry()
+void KeyPoll::enabletextentry(void)
 {
 	keybuffer="";
-	textentrymode = true;
 	SDL_StartTextInput();
 }
 
-void KeyPoll::disabletextentry()
+void KeyPoll::disabletextentry(void)
 {
-	textentrymode = false;
 	SDL_StopTextInput();
 }
 
-void KeyPoll::Poll()
+bool KeyPoll::textentry(void)
 {
+	return SDL_IsTextInputActive() == SDL_TRUE;
+}
+
+void KeyPoll::toggleFullscreen(void)
+{
+	if (graphics.screenbuffer != NULL)
+	{
+		graphics.screenbuffer->toggleFullScreen();
+	}
+
+	keymap.clear(); /* we lost the input due to a new window. */
+	if (game.glitchrunnermode)
+	{
+		game.press_left = false;
+		game.press_right = false;
+		game.press_action = true;
+		game.press_map = false;
+	}
+}
+
+void KeyPoll::Poll(void)
+{
+	bool altpressed = false;
+	bool fullscreenkeybind = false;
 	SDL_Event evt;
 	while (SDL_PollEvent(&evt))
 	{
+		switch (evt.type)
+		{
 		/* Keyboard Input */
-		if (evt.type == SDL_KEYDOWN)
+		case SDL_KEYDOWN:
 		{
 			keymap[evt.key.keysym.sym] = true;
 
@@ -84,19 +101,19 @@ void KeyPoll::Poll()
 			}
 
 #ifdef __APPLE__ /* OSX prefers the command keys over the alt keys. -flibit */
-			bool altpressed = keymap[SDLK_LGUI] || keymap[SDLK_RGUI];
+			altpressed = keymap[SDLK_LGUI] || keymap[SDLK_RGUI];
 #else
-			bool altpressed = keymap[SDLK_LALT] || keymap[SDLK_RALT];
+			altpressed = keymap[SDLK_LALT] || keymap[SDLK_RALT];
 #endif
 			bool returnpressed = evt.key.keysym.sym == SDLK_RETURN;
 			bool fpressed = evt.key.keysym.sym == SDLK_f;
 			bool f11pressed = evt.key.keysym.sym == SDLK_F11;
 			if ((altpressed && (returnpressed || fpressed)) || f11pressed)
 			{
-				toggleFullscreen = true;
+				fullscreenkeybind = true;
 			}
 
-			if (textentrymode)
+			if (textentry())
 			{
 				if (evt.key.keysym.sym == SDLK_BACKSPACE && !keybuffer.empty())
 				{
@@ -111,87 +128,91 @@ void KeyPoll::Poll()
 				else if (	evt.key.keysym.sym == SDLK_v &&
 						keymap[SDLK_LCTRL]	)
 				{
-					keybuffer += SDL_GetClipboardText();
+					char* text = SDL_GetClipboardText();
+					if (text != NULL)
+					{
+						keybuffer += text;
+						SDL_free(text);
+					}
 				}
 			}
+			break;
 		}
-		else if (evt.type == SDL_KEYUP)
-		{
+		case SDL_KEYUP:
 			keymap[evt.key.keysym.sym] = false;
 			if (evt.key.keysym.sym == SDLK_BACKSPACE)
 			{
 				pressedbackspace = false;
 			}
-		}
-		else if (evt.type == SDL_TEXTINPUT)
-		{
-			keybuffer += evt.text.text;
-		}
+			break;
+		case SDL_TEXTINPUT:
+			if (!altpressed)
+			{
+				keybuffer += evt.text.text;
+			}
+			break;
 
 		/* Mouse Input */
-		else if (evt.type == SDL_MOUSEMOTION)
-		{
+		case SDL_MOUSEMOTION:
 			mx = evt.motion.x;
 			my = evt.motion.y;
-		}
-		else if (evt.type == SDL_MOUSEBUTTONDOWN)
-		{
-			if (evt.button.button == SDL_BUTTON_LEFT)
+			break;
+		case SDL_MOUSEBUTTONDOWN:
+			switch (evt.button.button)
 			{
+			case SDL_BUTTON_LEFT:
 				mx = evt.button.x;
 				my = evt.button.y;
 				leftbutton = 1;
-			}
-			else if (evt.button.button == SDL_BUTTON_RIGHT)
-			{
+				break;
+			case SDL_BUTTON_RIGHT:
 				mx = evt.button.x;
 				my = evt.button.y;
 				rightbutton = 1;
-			}
-			else if (evt.button.button == SDL_BUTTON_MIDDLE)
-			{
+				break;
+			case SDL_BUTTON_MIDDLE:
 				mx = evt.button.x;
 				my = evt.button.y;
 				middlebutton = 1;
+				break;
 			}
-		}
-		else if (evt.type == SDL_MOUSEBUTTONUP)
-		{
-			if (evt.button.button == SDL_BUTTON_LEFT)
+			break;
+		case SDL_MOUSEBUTTONUP:
+			switch (evt.button.button)
 			{
+			case SDL_BUTTON_LEFT:
 				mx = evt.button.x;
 				my = evt.button.y;
 				leftbutton=0;
-			}
-			else if (evt.button.button == SDL_BUTTON_RIGHT)
-			{
+				break;
+			case SDL_BUTTON_RIGHT:
 				mx = evt.button.x;
 				my = evt.button.y;
 				rightbutton=0;
-			}
-			else if (evt.button.button == SDL_BUTTON_MIDDLE)
-			{
+				break;
+			case SDL_BUTTON_MIDDLE:
 				mx = evt.button.x;
 				my = evt.button.y;
 				middlebutton=0;
+				break;
 			}
-		}
+			break;
 
 		/* Controller Input */
-		else if (evt.type == SDL_CONTROLLERBUTTONDOWN)
-		{
+		case SDL_CONTROLLERBUTTONDOWN:
 			buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = true;
-		}
-		else if (evt.type == SDL_CONTROLLERBUTTONUP)
-		{
+			break;
+		case SDL_CONTROLLERBUTTONUP:
 			buttonmap[(SDL_GameControllerButton) evt.cbutton.button] = false;
-		}
-		else if (evt.type == SDL_CONTROLLERAXISMOTION)
+			break;
+		case SDL_CONTROLLERAXISMOTION:
 		{
-			if (evt.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX)
+			const int threshold = getThreshold();
+			switch (evt.caxis.axis)
 			{
-				if (	evt.caxis.value > -sensitivity &&
-					evt.caxis.value < sensitivity	)
+			case SDL_CONTROLLER_AXIS_LEFTX:
+				if (	evt.caxis.value > -threshold &&
+					evt.caxis.value < threshold	)
 				{
 					xVel = 0;
 				}
@@ -199,11 +220,10 @@ void KeyPoll::Poll()
 				{
 					xVel = (evt.caxis.value > 0) ? 1 : -1;
 				}
-			}
-			if (evt.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY)
-			{
-				if (	evt.caxis.value > -sensitivity &&
-					evt.caxis.value < sensitivity	)
+				break;
+			case SDL_CONTROLLER_AXIS_LEFTY:
+				if (	evt.caxis.value > -threshold &&
+					evt.caxis.value < threshold	)
 				{
 					yVel = 0;
 				}
@@ -211,9 +231,11 @@ void KeyPoll::Poll()
 				{
 					yVel = (evt.caxis.value > 0) ? 1 : -1;
 				}
+				break;
 			}
+			break;
 		}
-		else if (evt.type == SDL_CONTROLLERDEVICEADDED)
+		case SDL_CONTROLLERDEVICEADDED:
 		{
 			SDL_GameController *toOpen = SDL_GameControllerOpen(evt.cdevice.which);
 			printf(
@@ -222,80 +244,97 @@ void KeyPoll::Poll()
 				SDL_GameControllerName(toOpen)
 			);
 			controllers[SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(toOpen))] = toOpen;
+			break;
 		}
-		else if (evt.type == SDL_CONTROLLERDEVICEREMOVED)
+		case SDL_CONTROLLERDEVICEREMOVED:
 		{
 			SDL_GameController *toClose = controllers[evt.cdevice.which];
 			controllers.erase(evt.cdevice.which);
 			printf("Closing %s\n", SDL_GameControllerName(toClose));
 			SDL_GameControllerClose(toClose);
+			break;
 		}
 
 		/* Window Events */
-		else if (evt.type == SDL_WINDOWEVENT)
-		{
-			/* Window Resize */
-			if (evt.window.event == SDL_WINDOWEVENT_RESIZED)
+		case SDL_WINDOWEVENT:
+			switch (evt.window.event)
 			{
-				resetWindow = true;
-			}
+			/* Window Resize */
+			case SDL_WINDOWEVENT_RESIZED:
+				if (SDL_GetWindowFlags(
+					SDL_GetWindowFromID(evt.window.windowID)
+				) & SDL_WINDOW_INPUT_FOCUS)
+				{
+					resetWindow = true;
+				}
+				break;
 
 			/* Window Focus */
-			else if (evt.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
-			{
-				isActive = true;
-				if (!useFullscreenSpaces)
+			case SDL_WINDOWEVENT_FOCUS_GAINED:
+				if (!game.disablepause)
 				{
-					SDL_Window *window = SDL_GetWindowFromID(evt.window.windowID);
-					wasFullscreen = SDL_GetWindowFlags(window);
-					SDL_SetWindowFullscreen(window, 0);
+					isActive = true;
+					music.resume();
+					music.resumeef();
+				}
+				if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
+				{
+					if (wasFullscreen)
+					{
+						graphics.screenbuffer->isWindowed = false;
+						SDL_SetWindowFullscreen(
+							SDL_GetWindowFromID(evt.window.windowID),
+							SDL_WINDOW_FULLSCREEN_DESKTOP
+						);
+					}
 				}
 				SDL_DisableScreenSaver();
-				resetWindow = true;
-			}
-			else if (evt.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
-			{
-				isActive = false;
-				if (!useFullscreenSpaces)
+				break;
+			case SDL_WINDOWEVENT_FOCUS_LOST:
+				if (!game.disablepause)
 				{
+					isActive = false;
+					music.pause();
+					music.pauseef();
+				}
+				if (SDL_strcmp(SDL_GetCurrentVideoDriver(), "x11") == 0)
+				{
+					wasFullscreen = !graphics.screenbuffer->isWindowed;
+					graphics.screenbuffer->isWindowed = true;
 					SDL_SetWindowFullscreen(
 						SDL_GetWindowFromID(evt.window.windowID),
-						wasFullscreen
+						0
 					);
 				}
 				SDL_EnableScreenSaver();
-				resetWindow = true;
-			}
+				break;
 
 			/* Mouse Focus */
-			else if (evt.window.event == SDL_WINDOWEVENT_ENTER)
-			{
+			case SDL_WINDOWEVENT_ENTER:
 				SDL_DisableScreenSaver();
-				resetWindow = true;
-			}
-			else if (evt.window.event == SDL_WINDOWEVENT_LEAVE)
-			{
+				break;
+			case SDL_WINDOWEVENT_LEAVE:
 				SDL_EnableScreenSaver();
-				resetWindow = true;
+				break;
 			}
-		}
+			break;
 
 		/* Quit Event */
-		else if (evt.type == SDL_QUIT)
-		{
-			quitProgram = true;
+		case SDL_QUIT:
+			VVV_exit(0);
+			break;
 		}
+	}
+
+	if (fullscreenkeybind)
+	{
+		toggleFullscreen();
 	}
 }
 
 bool KeyPoll::isDown(SDL_Keycode key)
 {
 	return keymap[key];
-}
-
-bool KeyPoll::isUp(SDL_Keycode key)
-{
-	return !keymap[key];
 }
 
 bool KeyPoll::isDown(std::vector<SDL_GameControllerButton> buttons)
@@ -315,7 +354,7 @@ bool KeyPoll::isDown(SDL_GameControllerButton button)
 	return buttonmap[button];
 }
 
-bool KeyPoll::controllerButtonDown()
+bool KeyPoll::controllerButtonDown(void)
 {
 	for (
 		SDL_GameControllerButton button = SDL_CONTROLLER_BUTTON_A;

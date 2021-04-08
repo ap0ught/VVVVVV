@@ -1,6 +1,11 @@
 #include "BlockV.h"
 
-blockclass::blockclass()
+blockclass::blockclass(void)
+{
+	clear();
+}
+
+void blockclass::clear(void)
 {
 	type = 0;
 	trigger = 0;
@@ -14,11 +19,14 @@ blockclass::blockclass()
 	rect.w = wp;
 	rect.h = hp;
 
-	prompt = "";
-	script = "";
 	r = 0;
 	g = 0;
 	b = 0;
+
+	/* std::strings get initialized automatically, but this is */
+	/* in case this function gets called again after construction */
+	script.clear();
+	prompt.clear();
 }
 
 void blockclass::rectset(const int xi, const int yi, const int wi, const int hi)

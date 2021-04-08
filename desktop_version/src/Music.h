@@ -1,57 +1,71 @@
 #ifndef MUSIC_H
 #define MUSIC_H
 
-#include "SoundSystem.h"
-
 #include <vector>
+
+#include "BinaryBlob.h"
+#include "SoundSystem.h"
 
 #define musicroom(rx, ry) ((rx) + ((ry) * 20))
 
 class musicclass
 {
 public:
-	void init();
+	musicclass(void);
+	void init(void);
+	void destroy(void);
 
 	void play(int t);
-	void haltdasmusik();
-	void silencedasmusik();
+	void resume();
+	void resumefade(const int fadein_ms);
+	void pause(void);
+	void haltdasmusik(void);
+	void silencedasmusik(void);
+	void setfadeamount(const int fade_ms);
 	void fadeMusicVolumeIn(int ms);
-	void fadeout();
-	void processmusicfadein();
-	void processmusic();
+	void fadeMusicVolumeOut(const int fadeout_ms);
+	void fadeout(const bool quick_fade_ = true);
+	void fadein(void);
+	void processmusicfadein(void);
+	void processmusicfadeout(void);
+	void processmusic(void);
 	void niceplay(int t);
 
 	void changemusicarea(int x, int y);
 
-	int currentsong, musicfade, musicfadein;
-	int resumesong;
+	int currentsong;
 
 	void playef(int t);
+	void pauseef(void);
+	void resumeef(void);
 
 	std::vector<SoundTrack> soundTracks;
 	std::vector<MusicTrack> musicTracks;
 	SoundSystem soundSystem;
 	bool safeToProcessMusic;
 
-	int nicechange;
-	int nicefade;
+	int nicechange; // -1 if no song queued
+	bool nicefade;
 
 	bool m_doFadeInVol;
+	bool m_doFadeOutVol;
 	int FadeVolAmountPerFrame;
 	int musicVolume;
 
-	float volume;
-
-	bool custompd;
-
-	int fadeoutqueuesong; // -1 if no song queued
-	bool dontquickfade;
+	bool quick_fade;
 
 	// MMMMMM mod settings
 	bool mmmmmm;
 	bool usingmmmmmm;
+
+	binaryBlob pppppp_blob;
+	binaryBlob mmmmmm_blob;
+	int num_pppppp_tracks;
+	int num_mmmmmm_tracks;
 };
 
+#ifndef MUSIC_DEFINITION
 extern musicclass music;
+#endif
 
 #endif /* MUSIC_H */

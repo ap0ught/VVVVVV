@@ -7,8 +7,30 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8.12)
 OPTION(ENABLE_WARNINGS "Enable compilation warnings" ON)
 OPTION(ENABLE_WERROR "Treat compilation warnings as errors" OFF)
 
+SET(BUNDLE_DEPENDENCIES ON CACHE BOOL "Use bundled TinyXML-2, PhysicsFS, and UTF8-CPP (if disabled, TinyXML-2 and PhysicsFS will be dynamically linked, LodePNG and UTF8-CPP will still be statically linked)")
+
 SET(CUSTOM_LEVEL_SUPPORT ENABLED CACHE STRING "Optionally disable playing and/or editing of custom levels")
 SET_PROPERTY(CACHE CUSTOM_LEVEL_SUPPORT PROPERTY STRINGS ENABLED NO_EDITOR DISABLED)
+
+SET(STEAM OFF CACHE BOOL "Use the Steam API")
+SET(GOG OFF CACHE BOOL "Use the GOG API")
+
+SET(OFFICIAL_BUILD OFF CACHE BOOL "Compile an official build of the game")
+
+SET(MAKEANDPLAY OFF CACHE BOOL "Compile a version of the game without the main campaign (provided for convenience; consider modifying MakeAndPlay.h instead")
+
+IF(OFFICIAL_BUILD AND NOT MAKEANDPLAY)
+	SET(STEAM ON)
+	SET(GOG ON)
+ENDIF()
+
+IF(MAKEANDPLAY)
+	ADD_DEFINITIONS(-DMAKEANDPLAY)
+ENDIF()
+
+# Set standard to C++98/C++03
+SET(CMAKE_CXX_STANDARD 98)
+SET(CMAKE_CXX_EXTENSIONS OFF) # prevent mixing stdlib implementations (dangerous!)
 
 # Architecture Flags
 IF(APPLE)
@@ -54,13 +76,20 @@ IF(NOT WIN32)
 ENDIF()
 
 # Include Directories
-INCLUDE_DIRECTORIES(
-	src
-	../third_party/tinyxml
-	../third_party/physfs
-	../third_party/lodepng
-	../third_party/utfcpp/source
-)
+IF(BUNDLE_DEPENDENCIES)
+	INCLUDE_DIRECTORIES(
+		src
+		../third_party/tinyxml2
+		../third_party/physfs
+		../third_party/lodepng
+		../third_party/utfcpp/source
+	)
+ELSE()
+	INCLUDE_DIRECTORIES(
+		src
+		../third_party/lodepng
+	)
+ENDIF()
 
 # Source Lists
 SET(VVV_SRC
@@ -83,6 +112,7 @@ SET(VVV_SRC
 	src/Otherlevel.cpp
 	src/preloader.cpp
 	src/Render.cpp
+	src/RenderFixed.cpp
 	src/Screen.cpp
 	src/Script.cpp
 	src/Scripts.cpp
@@ -93,20 +123,26 @@ SET(VVV_SRC
 	src/Tower.cpp
 	src/UtilityClass.cpp
 	src/WarpClass.cpp
+	src/XMLUtils.cpp
 	src/main.cpp
+	src/DeferCallbacks.c
 	src/Network.c
-	src/SteamNetwork.c
-	src/GOGNetwork.c
+	src/ThirdPartyDeps.c
 )
 IF(NOT CUSTOM_LEVEL_SUPPORT STREQUAL "DISABLED")
 	LIST(APPEND VVV_SRC src/editor.cpp)
 ENDIF()
+IF(STEAM)
+	LIST(APPEND VVV_SRC src/SteamNetwork.c)
+	ADD_DEFINITIONS(-DSTEAM_NETWORK)
+ENDIF()
+IF(GOG)
+	LIST(APPEND VVV_SRC src/GOGNetwork.c)
+	ADD_DEFINITIONS(-DGOG_NETWORK)
+ENDIF()
 
-SET(XML_SRC
-	../third_party/tinyxml/tinystr.cpp
-	../third_party/tinyxml/tinyxml.cpp
-	../third_party/tinyxml/tinyxmlerror.cpp
-	../third_party/tinyxml/tinyxmlparser.cpp
+SET(XML2_SRC
+	../third_party/tinyxml2/tinyxml2.cpp
 )
 SET(PFS_SRC
 	../third_party/physfs/physfs.c
@@ -131,6 +167,38 @@ IF(WIN32)
 	ADD_EXECUTABLE(VVVVVV WIN32 ${VVV_SRC})
 ELSE()
 	ADD_EXECUTABLE(VVVVVV ${VVV_SRC})
+ENDIF()
+
+IF(NOT OFFICIAL_BUILD)
+	# Add interim commit hash and its date to the build
+
+	# FIND_PACKAGE sets GIT_FOUND and GIT_EXECUTABLE
+	FIND_PACKAGE(Git)
+
+	IF(GIT_FOUND)
+		# These filenames have to be qualified, because when we run
+		# the CMake script, its work dir gets set to the build folder
+		SET(VERSION_INPUT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in)
+		SET(VERSION_OUTPUT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.out)
+
+		ADD_CUSTOM_TARGET(
+			GenerateVersion ALL
+			# This BYPRODUCTS line is required for this to be ran every time
+			BYPRODUCTS ${VERSION_OUTPUT_FILE}
+			COMMAND ${CMAKE_COMMAND}
+			# These args have to be passed through, otherwise the script can't see them
+			# Also, these args have to come BEFORE `-P`! (Otherwise it fails with an unclear error)
+			-DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+			-DINPUT_FILE=${VERSION_INPUT_FILE}
+			-DOUTPUT_FILE=${VERSION_OUTPUT_FILE}
+			-P ${CMAKE_CURRENT_SOURCE_DIR}/version.cmake
+		)
+
+		ADD_DEPENDENCIES(VVVVVV GenerateVersion)
+
+		# This lets Version.h know that Version.h.out exists
+		ADD_DEFINITIONS(-DVERSION_H_OUT_EXISTS)
+	ENDIF()
 ENDIF()
 
 # Build options
@@ -167,18 +235,38 @@ IF(SUPPORTS_IMPLICIT_FALLTHROUGH)
 	TARGET_COMPILE_OPTIONS(VVVVVV PRIVATE -Werror=implicit-fallthrough)
 ENDIF()
 
-# Library information
-ADD_LIBRARY(tinyxml-static STATIC ${XML_SRC})
-ADD_LIBRARY(physfs-static STATIC ${PFS_SRC} ${PFSP_SRC})
+IF(MSVC)
+	# Disable MSVC warnings about implicit conversion
+	TARGET_COMPILE_OPTIONS(VVVVVV PRIVATE /wd4244)
+ENDIF()
+
+SET_PROPERTY(TARGET VVVVVV PROPERTY CXX_STANDARD 98)
+SET_PROPERTY(TARGET VVVVVV PROPERTY CXX_EXTENSIONS FALSE)
+
+# Unfortunately, it doesn't seem like distros package LodePNG
 ADD_LIBRARY(lodepng-static STATIC ${PNG_SRC})
 
-# Static Dependencies
-TARGET_LINK_LIBRARIES(VVVVVV physfs-static tinyxml-static lodepng-static)
+TARGET_COMPILE_DEFINITIONS(lodepng-static PRIVATE
+	-DLODEPNG_NO_COMPILE_ALLOCATORS
+	-DLODEPNG_NO_COMPILE_DISK
+	-DLODEPNG_NO_COMPILE_ENCODER
+)
+
+IF(BUNDLE_DEPENDENCIES)
+	ADD_LIBRARY(tinyxml2-static STATIC ${XML2_SRC})
+	ADD_LIBRARY(physfs-static STATIC ${PFS_SRC} ${PFSP_SRC})
+
+	TARGET_LINK_LIBRARIES(VVVVVV physfs-static tinyxml2-static lodepng-static)
+ELSE()
+	FIND_PACKAGE(utf8cpp CONFIG)
+
+	TARGET_LINK_LIBRARIES(VVVVVV physfs tinyxml2 utf8cpp lodepng-static)
+ENDIF()
 
 # SDL2 Dependency (Detection pulled from FAudio)
 if (DEFINED SDL2_INCLUDE_DIRS AND DEFINED SDL2_LIBRARIES)
 	message(STATUS "Using pre-defined SDL2 variables SDL2_INCLUDE_DIRS and SDL2_LIBRARIES")
-	target_include_directories(VVVVVV PUBLIC "$<BUILD_INTERFACE:${SDL2_INCLUDE_DIRS}>")
+	target_include_directories(VVVVVV SYSTEM PUBLIC "$<BUILD_INTERFACE:${SDL2_INCLUDE_DIRS}>")
 	target_link_libraries(VVVVVV ${SDL2_LIBRARIES})
 else()
 	# Only try to autodetect if both SDL2 variables aren't explicitly set
@@ -191,7 +279,8 @@ else()
 		target_link_libraries(VVVVVV SDL2 SDL2_mixer)
 	else()
 		message(STATUS "No TARGET SDL2::SDL2, or SDL2, using variables")
-		target_include_directories(VVVVVV PUBLIC "$<BUILD_INTERFACE:${SDL2_INCLUDE_DIRS}>")
+		find_path(SDL2_MIXER_INCLUDE_DIRS NAMES SDL_mixer.h PATH_SUFFIXES SDL2)
+		target_include_directories(VVVVVV SYSTEM PUBLIC "$<BUILD_INTERFACE:${SDL2_INCLUDE_DIRS}>" ${SDL2_MIXER_INCLUDE_DIRS})
 		target_link_libraries(VVVVVV ${SDL2_LIBRARIES} SDL2_mixer)
 	endif()
 endif()

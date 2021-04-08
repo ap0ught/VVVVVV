@@ -1,22 +1,24 @@
+#define MAP_DEFINITION
 #include "Map.h"
 
+#include "editor.h"
+#include "Entity.h"
+#include "Game.h"
+#include "Graphics.h"
 #include "MakeAndPlay.h"
+#include "Music.h"
+#include "Script.h"
+#include "UtilityClass.h"
 
-#if !defined(NO_CUSTOM_LEVELS)
-extern editorclass ed;
-#endif
-
-mapclass::mapclass()
+mapclass::mapclass(void)
 {
 	//Start here!
-	r = 196;
-	g = 196;
-	b = 196;
-	colstate = 0;
 	colstatedelay = 0;
 	colsuperstate = 0;
 	spikeleveltop = 0;
 	spikelevelbottom = 0;
+	oldspikeleveltop = 0;
+	oldspikelevelbottom = 0;
 	warpx = false;
 	warpy = false;
 	extrarow = 0;
@@ -27,11 +29,13 @@ mapclass::mapclass()
 
 	finalmode = false;
 	finalstretch = false;
-	finalx = 50;
-	finaly = 50;
 
 	cursorstate = 0;
 	cursordelay = 0;
+
+	towermode = false;
+	cameraseekframe = 0;
+	resumedelay = 0;
 
 	final_colormode = false;
 	final_colorframe = 0;
@@ -42,7 +46,6 @@ mapclass::mapclass()
 
 	custommode=false;
 	custommodeforreal=false;
-	customx=0; customy=0;
 	customwidth=20; customheight=20;
 	custommmxoff=0; custommmyoff=0; custommmxsize=0; custommmysize=0;
 	customzoom=0;
@@ -54,68 +57,55 @@ mapclass::mapclass()
 	invincibility = false;
 
 	//We init the lookup table:
-	for (int i = 0; i < 30; i++)
+	for (size_t i = 0; i < SDL_arraysize(vmult); i++)
 	{
-		vmult.push_back(int(i * 40));
+		vmult[i] = i * 40;
 	}
 	//We create a blank map
-	for (int j = 0; j < 30; j++)
-	{
-		for (int i = 0; i < 40; i++)
-		{
-			contents.push_back(0);
-		}
-	}
+	SDL_memset(contents, 0, sizeof(contents));
 
-	for (int j = 0; j < 20; j++)
-	{
-		for (int i = 0; i < 20; i++)
-		{
-			areamap.push_back(0);
-			roomdeaths.push_back(0);
-			roomdeathsfinal.push_back(0);
-			explored.push_back(0);
-		}
-	}
+	SDL_memset(roomdeaths, 0, sizeof(roomdeaths));
+	SDL_memset(roomdeathsfinal, 0, sizeof(roomdeathsfinal));
+	resetmap();
 
 	tileset = 0;
 	initmapdata();
 
-	for (int i = 0; i < 8; i++)
-	{
-		specialnames.push_back(std::string());
-	}
 	resetnames();
 
-	//Areamap starts at 100,100 and extends 20x20
-	std::vector<std::string> tmap;
-	tmap.push_back("1,2,2,2,2,2,2,2,0,3,0,0,0,4,4,4,4,4,4,4");
-	tmap.push_back("1,2,2,2,2,2,2,0,0,3,0,0,0,0,4,4,4,4,4,4");
-	tmap.push_back("0,1,0,0,2,0,0,0,0,3,0,0,0,0,4,4,4,4,4,4");
-	tmap.push_back("0,0,0,0,2,0,0,0,0,3,0,0,5,5,5,5,4,4,4,4");
-	tmap.push_back("0,0,2,2,2,0,0,0,0,3,11,11,5,5,5,5,0,0,0,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,0,0,0,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,5,0,0,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,5,5,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,0,0,5,5,5,5,5,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,11,3,0,0,0,5,5,5,5,5,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,0,0,5,5,5,5,5,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,5,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,0,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,0,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,0,0,3,0,5,5,0,0,0,0,0,5,0");
-	tmap.push_back("0,0,0,0,0,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0");
-	tmap.push_back("0,0,2,2,2,2,2,2,0,3,0,0,0,0,0,0,0,0,0,0");
-	tmap.push_back("0,2,2,2,2,2,2,2,0,3,0,0,0,0,0,0,0,0,0,0");
-	tmap.push_back("2,2,2,2,2,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0");
-	tmap.push_back("2,2,2,2,2,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0");
-	fillareamap(tmap);
+	ypos = 0;
+	oldypos = 0;
+
+	background = 0;
+	cameramode = 0;
+	cameraseek = 0;
+	minitowermode = false;
+	roomtexton = false;
 }
 
-int mapclass::RGB(int red,int green,int blue)
-{
-	return (blue | (green << 8) | (red << 16));
-}
+//Areamap starts at 100,100 and extends 20x20
+const int mapclass::areamap[] = {
+	1,2,2,2,2,2,2,2,0,3,0,0,0,4,4,4,4,4,4,4,
+	1,2,2,2,2,2,2,0,0,3,0,0,0,0,4,4,4,4,4,4,
+	0,1,0,0,2,0,0,0,0,3,0,0,0,0,4,4,4,4,4,4,
+	0,0,0,0,2,0,0,0,0,3,0,0,5,5,5,5,4,4,4,4,
+	0,0,2,2,2,0,0,0,0,3,11,11,5,5,5,5,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,5,0,0,0,
+	0,0,0,0,0,0,0,0,0,3,5,5,5,5,5,5,5,5,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,0,0,5,5,5,5,5,5,0,
+	0,0,0,0,0,0,0,0,11,3,0,0,0,5,5,5,5,5,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,0,0,5,5,5,5,5,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,5,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,0,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,5,5,5,5,5,5,0,5,0,
+	0,0,0,0,0,0,0,0,0,3,0,5,5,0,0,0,0,0,5,0,
+	0,0,0,0,0,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0,
+	0,0,2,2,2,2,2,2,0,3,0,0,0,0,0,0,0,0,0,0,
+	0,2,2,2,2,2,2,2,0,3,0,0,0,0,0,0,0,0,0,0,
+	2,2,2,2,2,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0,
+	2,2,2,2,2,0,0,2,0,3,0,0,0,0,0,0,0,0,0,0,
+};
 
 int mapclass::intpol(int a, int b, float c)
 {
@@ -138,19 +128,13 @@ void mapclass::settrinket(int x, int y)
 	shinytrinkets.push_back(temp);
 }
 
-void mapclass::resetmap()
+void mapclass::resetmap(void)
 {
 	//clear the explored area of the map
-	for (int j = 0; j < 20; j++)
-	{
-		for (int i = 0; i < 20; i++)
-		{
-			explored[i + (j * 20)] = 0;
-		}
-	}
+	SDL_memset(explored, 0, sizeof(explored));
 }
 
-void mapclass::resetnames()
+void mapclass::resetnames(void)
 {
 	//Reset all the special names
 	specialnames[0] = "Rear Window";
@@ -409,8 +393,17 @@ std::string mapclass::getglitchname(int x, int y)
 	return roomname;
 }
 
-void mapclass::initmapdata()
+void mapclass::initmapdata(void)
 {
+	if (custommode)
+	{
+		initcustommapdata();
+		return;
+	}
+
+	teleporters.clear();
+	shinytrinkets.clear();
+
 	//Set up static map information like teleporters and shiny trinkets.
 	setteleporter(0, 0);
 	setteleporter(0, 16);
@@ -450,6 +443,27 @@ void mapclass::initmapdata()
 	settrinket(10, 8);
 }
 
+void mapclass::initcustommapdata(void)
+{
+	shinytrinkets.clear();
+
+#if !defined(NO_CUSTOM_LEVELS)
+	for (size_t i = 0; i < edentity.size(); i++)
+	{
+		const edentities& ent = edentity[i];
+		if (ent.t != 9)
+		{
+			continue;
+		}
+
+		const int rx = ent.x / 40;
+		const int ry = ent.y / 30;
+
+		settrinket(rx, ry);
+	}
+#endif
+}
+
 int mapclass::finalat(int x, int y)
 {
 	//return the tile index of the final stretch tiles offset by the colour difference
@@ -458,8 +472,7 @@ int mapclass::finalat(int x, int y)
 		//Special case: animated tiles
 		if (final_mapcol == 1)
 		{
-			// Windows hits fRandom() == 1 frequently! For fuck sake! -flibit
-			return 737 + (std::min(int(fRandom() * 12), 11) * 40);
+			return 737 + (int(fRandom() * 11) * 40);
 		}
 		else
 		{
@@ -474,7 +487,6 @@ int mapclass::finalat(int x, int y)
 	{
 		return contents[x + vmult[y]];
 	}
-	return 0;
 }
 
 int mapclass::maptiletoenemycol(int t)
@@ -512,7 +524,7 @@ void mapclass::changefinalcol(int t)
 	//change the map to colour t - for the game's final stretch.
 	//First up, the tiles. This is just a setting:
 	final_mapcol = t;
-	temp = 6 - t;
+	int temp = 6 - t;
 	//Next, entities
 	for (size_t i = 0; i < obj.entities.size(); i++)
 	{
@@ -546,44 +558,53 @@ void mapclass::changefinalcol(int t)
 	}
 }
 
-void mapclass::setcol(const int r1, const int g1, const int b1 , const int r2, const int g2, const int b2, const int c)
+void mapclass::setcol(TowerBG& bg_obj, const int r1, const int g1, const int b1 , const int r2, const int g2, const int b2, const int c)
 {
-	r = intpol(r1, r2, c / 5);
-	g = intpol(g1, g2, c / 5);
-	b = intpol(b1, b2, c / 5);
+	bg_obj.r = intpol(r1, r2, c / 5);
+	bg_obj.g = intpol(g1, g2, c / 5);
+	bg_obj.b = intpol(b1, b2, c / 5);
 }
 
-void mapclass::updatetowerglow()
+void mapclass::updatebgobj(TowerBG& bg_obj)
+{
+	const int check = bg_obj.colstate % 5; //current state of phase
+	const int cmode = (bg_obj.colstate - check) / 5; // current colour transition;
+
+	switch(cmode)
+	{
+	case 0:
+		setcol(bg_obj, 255, 93, 107, 255, 255, 93, check);
+		break;
+	case 1:
+		setcol(bg_obj, 255, 255, 93, 159, 255, 93, check);
+		break;
+	case 2:
+		setcol(bg_obj, 159, 255, 93, 93, 245, 255, check);
+		break;
+	case 3:
+		setcol(bg_obj, 93, 245, 255, 177, 93, 255, check);
+		break;
+	case 4:
+		setcol(bg_obj, 177, 93, 255, 255, 93, 255, check);
+		break;
+	case 5:
+		setcol(bg_obj, 255, 93, 255, 255, 93, 107, check);
+		break;
+	}
+
+	bg_obj.tdrawback = true;
+}
+
+void mapclass::updatetowerglow(TowerBG& bg_obj)
 {
 	if (colstatedelay <= 0 || colsuperstate > 0)
 	{
-		if (colsuperstate > 0) colstate--;
-		colstate++;
-		if (colstate >= 30) colstate = 0;
-		check = colstate % 5; //current state of phase
-		cmode = (colstate - check) / 5; // current colour transition
+		if (colsuperstate > 0) bg_obj.colstate--;
+		bg_obj.colstate++;
+		if (bg_obj.colstate >= 30) bg_obj.colstate = 0;
 
-		switch(cmode)
-		{
-		case 0:
-			setcol(255, 93, 107, 255, 255, 93, check);
-			break;
-		case 1:
-			setcol(255, 255, 93, 159, 255, 93, check);
-			break;
-		case 2:
-			setcol(159, 255, 93, 93, 245, 255, check);
-			break;
-		case 3:
-			setcol(93, 245, 255, 177, 93, 255, check);
-			break;
-		case 4:
-			setcol(177, 93, 255, 255, 93, 255, check);
-			break;
-		case 5:
-			setcol(255, 93, 255, 255, 93, 107, check);
-			break;
-		}
+		const int check = bg_obj.colstate % 5;
+		updatebgobj(bg_obj);
 
 		if (check == 0)
 		{
@@ -594,9 +615,6 @@ void mapclass::updatetowerglow()
 			colstatedelay = 0;
 		}
 		if (colsuperstate > 0) colstatedelay = 0;
-
-		tdrawback = true;
-		towercol = RGB(r*0.04f, g*0.04f, b*0.04f);
 	}
 	else
 	{
@@ -604,70 +622,20 @@ void mapclass::updatetowerglow()
 	}
 }
 
-void mapclass::nexttowercolour()
+void mapclass::nexttowercolour(void)
 {
-	colstate+=5;
-	if (colstate >= 30) colstate = 0;
-	check = colstate % 5; //current state of phase
-	cmode = (colstate - check) / 5; // current colour transition
+	graphics.titlebg.colstate+=5;
+	if (graphics.titlebg.colstate >= 30) graphics.titlebg.colstate = 0;
 
-	switch(cmode)
-	{
-	case 0:
-		setcol(255, 93, 107, 255, 255, 93, check);
-		break;
-	case 1:
-		setcol(255, 255, 93, 159, 255, 93, check);
-		break;
-	case 2:
-		setcol(159, 255, 93, 93, 245, 255, check);
-		break;
-	case 3:
-		setcol(93, 245, 255, 177, 93, 255, check);
-		break;
-	case 4:
-		setcol(177, 93, 255, 255, 93, 255, check);
-		break;
-	case 5:
-		setcol(255, 93, 255, 255, 93, 107, check);
-		break;
-	}
-
-	tdrawback = true;
-	towercol = RGB(r*0.04, g*0.04, b*0.04);
+	updatebgobj(graphics.titlebg);
 }
 
 void mapclass::settowercolour(int t)
 {
-	colstate=t*5;
-	if (colstate >= 30) colstate = 0;
-	check = colstate % 5; //current state of phase
-	cmode = (colstate - check) / 5; // current colour transition
+	graphics.titlebg.colstate=t*5;
+	if (graphics.titlebg.colstate >= 30) graphics.titlebg.colstate = 0;
 
-	switch(cmode)
-	{
-	case 0:
-		setcol(255, 93, 107, 255, 255, 93, check);
-		break;
-	case 1:
-		setcol(255, 255, 93, 159, 255, 93, check);
-		break;
-	case 2:
-		setcol(159, 255, 93, 93, 245, 255, check);
-		break;
-	case 3:
-		setcol(93, 245, 255, 177, 93, 255, check);
-		break;
-	case 4:
-		setcol(177, 93, 255, 255, 93, 255, check);
-		break;
-	case 5:
-		setcol(255, 93, 255, 255, 93, 107, check);
-		break;
-	}
-
-	tdrawback = true;
-	towercol = RGB(r*0.04, g*0.04, b*0.04);
+	updatebgobj(graphics.titlebg);
 }
 
 bool mapclass::spikecollide(int x, int y)
@@ -724,38 +692,11 @@ bool mapclass::collide(int x, int y)
 	return false;
 }
 
-void mapclass::fillareamap(std::vector<std::string>& tmap)
-{
-
-	for (j = 0; j < 20; j++)
-	{
-		std::vector<std::string> maprow = split(tmap[j], ',');
-		for (int i = 0; i < 20; i++)
-		{
-			areamap[i + (j * 20)] = atoi(maprow[i].c_str());
-		}
-	}
-}
-
 void mapclass::settile(int xp, int yp, int t)
 {
 	if (xp >= 0 && xp < 40 && yp >= 0 && yp < 29+extrarow)
 	{
 		contents[xp + vmult[yp]] = t;
-	}
-}
-
-void mapclass::fillcontent(std::vector<std::string>& tmap)
-{
-
-	for (j = 0; j < 29+extrarow; j++)
-	{
-		std::vector<std::string> maprow = split(tmap[j], ',');
-
-		for(int i = 0; i < 40; i++)
-		{
-			contents[i + vmult[j]] = atoi(maprow[i].c_str());
-		}
 	}
 }
 
@@ -770,7 +711,6 @@ int mapclass::area(int _rx, int _ry)
 	else
 	{
 		int lookup = (_rx - 100) + ((_ry - 100) * 20);
-		//lookup = std::max(0,lookup);
 		if(_rx-100>=0 && _rx-100<20 && _ry-100>=0 && _ry-100<20){
 			return areamap[lookup];
 		}
@@ -781,37 +721,61 @@ int mapclass::area(int _rx, int _ry)
 	}
 }
 
-void mapclass::exploretower()
+bool mapclass::isexplored(const int rx, const int ry)
 {
-	for (int i = 0; i < 20; i++)
+	const int roomnum = rx + ry*20;
+	if (INBOUNDS_ARR(roomnum, explored))
 	{
-		explored[9 + (i * 20)] = 1;
+		return explored[roomnum];
+	}
+	return false;
+}
+
+void mapclass::setexplored(const int rx, const int ry, const bool status)
+{
+	const int roomnum = rx + ry*20;
+	if (INBOUNDS_ARR(roomnum, explored))
+	{
+		explored[roomnum] = status;
 	}
 }
 
-void mapclass::hideship()
+void mapclass::exploretower(void)
 {
-	//remove the ship from the explored areas
-	explored[2 + (10 * 20)] = 0;
-	explored[3 + (10 * 20)] = 0;
-	explored[4 + (10 * 20)] = 0;
-	explored[2 + (11 * 20)] = 0;
-	explored[3 + (11 * 20)] = 0;
-	explored[4 + (11 * 20)] = 0;
+	for (int i = 0; i < 20; i++)
+	{
+		setexplored(9, i, true);
+	}
 }
 
-void mapclass::showship()
+void mapclass::hideship(void)
 {
 	//remove the ship from the explored areas
-	explored[2 + (10 * 20)] = 1;
-	explored[3 + (10 * 20)] = 1;
-	explored[4 + (10 * 20)] = 1;
-	explored[2 + (11 * 20)] = 1;
-	explored[3 + (11 * 20)] = 1;
-	explored[4 + (11 * 20)] = 1;
+	setexplored(2, 10, false);
+	setexplored(3, 10, false);
+	setexplored(4, 10, false);
+	setexplored(2, 11, false);
+	setexplored(3, 11, false);
+	setexplored(4, 11, false);
 }
 
-void mapclass::resetplayer()
+void mapclass::showship(void)
+{
+	//show the ship in the explored areas
+	setexplored(2, 10, true);
+	setexplored(3, 10, true);
+	setexplored(4, 10, true);
+	setexplored(2, 11, true);
+	setexplored(3, 11, true);
+	setexplored(4, 11, true);
+}
+
+void mapclass::resetplayer(void)
+{
+	resetplayer(false);
+}
+
+void mapclass::resetplayer(const bool player_died)
 {
 	bool was_in_tower = towermode;
 	if (game.roomx != game.saverx || game.roomy != game.savery)
@@ -821,7 +785,7 @@ void mapclass::resetplayer()
 
 	game.deathseq = -1;
 	int i = obj.getplayer();
-	if(i>-1)
+	if(INBOUNDS_VEC(i, obj.entities))
 	{
 		obj.entities[i].vx = 0;
 		obj.entities[i].vy = 0;
@@ -829,10 +793,30 @@ void mapclass::resetplayer()
 		obj.entities[i].ay = 0;
 		obj.entities[i].xp = game.savex;
 		obj.entities[i].yp = game.savey;
+
+		//Fix conveyor death loop glitch
+		obj.entities[i].newxp = obj.entities[i].xp;
+		obj.entities[i].newyp = obj.entities[i].yp;
+
 		obj.entities[i].dir = game.savedir;
 		obj.entities[i].colour = 0;
-		game.lifeseq = 10;
-		obj.entities[i].invis = true;
+		if (player_died)
+		{
+			game.lifeseq = 10;
+			obj.entities[i].invis = true;
+		}
+		else
+		{
+			obj.entities[i].invis = false;
+		}
+		if (!game.glitchrunnermode)
+		{
+			obj.entities[i].size = 0;
+			obj.entities[i].cx = 6;
+			obj.entities[i].cy = 2;
+			obj.entities[i].w = 12;
+			obj.entities[i].h = 21;
+		}
 
 		// If we entered a tower as part of respawn, reposition camera
 		if (!was_in_tower && towermode)
@@ -842,7 +826,8 @@ void mapclass::resetplayer()
 			{
 				ypos = 0;
 			}
-			bypos = ypos / 2;
+			oldypos = ypos;
+			graphics.towerbg.bypos = ypos / 2;
 		}
 	}
 
@@ -872,8 +857,13 @@ void mapclass::warpto(int rx, int ry , int t, int tx, int ty)
 {
 	gotoroom(rx, ry);
 	game.teleport = false;
-	obj.entities[t].xp = tx * 8;
-	obj.entities[t].yp = (ty * 8) - obj.entities[t].h;
+	if (INBOUNDS_VEC(t, obj.entities))
+	{
+		obj.entities[t].xp = tx * 8;
+		obj.entities[t].yp = (ty * 8) - obj.entities[t].h;
+		obj.entities[t].lerpoldxp = obj.entities[t].xp;
+		obj.entities[t].lerpoldyp = obj.entities[t].yp;
+	}
 	game.gravitycontrol = 0;
 }
 
@@ -883,6 +873,7 @@ void mapclass::gotoroom(int rx, int ry)
 	obj.removeallblocks();
 	game.activetele = false;
 	game.readytotele = 0;
+	game.oldreadytotele = 0;
 
 	//Ok, let's save the position of all lines on the screen
 	obj.linecrosskludge.clear();
@@ -899,13 +890,25 @@ void mapclass::gotoroom(int rx, int ry)
 		}
 	}
 
-	int theplayer = obj.getplayer();
-	for (int i = 0; i < (int) obj.entities.size(); i++)
+	/* Disable all entities in the room, and deallocate any unnecessary entity slots. */
+	/* However don't disable player entities, but do preserve holes between them (if any). */
+	bool player_found = false;
+	for (int i = obj.entities.size() - 1; i >= 0; --i)
 	{
-		if (i != theplayer)
+		/* Iterate in reverse order to prevent unnecessary indice shifting */
+		if (obj.entities[i].rule == 0)
 		{
-			removeentity_iter(i);
-			theplayer--; //just in case indice of player is not 0
+			player_found = true;
+			continue;
+		}
+
+		if (!player_found)
+		{
+			obj.entities.erase(obj.entities.begin() + i);
+		}
+		else
+		{
+			obj.disableentity(i);
 		}
 	}
 
@@ -926,18 +929,13 @@ void mapclass::gotoroom(int rx, int ry)
 	if (finalmode)
 	{
 		//Ok, what way are we moving?
-		finalx = rx;
-		finaly = ry;
-		game.roomx = finalx;
-		game.roomy = finaly;
+		game.roomx = rx;
+		game.roomy = ry;
 		game.roomchange = true;
-		rx = finalx;
-		ry = finaly;
 
 		if (game.roomy < 10)
 		{
 			game.roomy = 11;
-			finaly = 11;
 		}
 
 		if(game.roomx>=41 && game.roomy>=48 && game.roomx<61 && game.roomy<68 )
@@ -1040,7 +1038,7 @@ void mapclass::gotoroom(int rx, int ry)
 		//Leaving the Ship
 		if (game.roomx == 104 && game.roomy == 112) music.niceplay(4);
 	}
-	temp = rx + (ry * 100);
+	int temp = rx + (ry * 100);
 	loadlevel(game.roomx, game.roomy);
 
 
@@ -1077,10 +1075,12 @@ void mapclass::gotoroom(int rx, int ry)
 	//continuations!
 
 	temp = obj.getplayer();
-	if(temp>-1)
+	if(INBOUNDS_VEC(temp, obj.entities))
 	{
 		obj.entities[temp].oldxp = obj.entities[temp].xp;
 		obj.entities[temp].oldyp = obj.entities[temp].yp;
+		obj.entities[temp].lerpoldxp = obj.entities[temp].xp - int(obj.entities[temp].vx);
+		obj.entities[temp].lerpoldyp = obj.entities[temp].yp - int(obj.entities[temp].vy);
 	}
 
 	for (size_t i = 0; i < obj.entities.size(); i++)
@@ -1091,7 +1091,7 @@ void mapclass::gotoroom(int rx, int ry)
 			if (obj.entities[i].xp <= 0 || obj.entities[i].xp + obj.entities[i].w >= 312)
 			{
 				//it's on a screen edge
-				for (j = 0; j < (int) obj.linecrosskludge.size(); j++)
+				for (size_t j = 0; j < obj.linecrosskludge.size(); j++)
 				{
 					if (obj.entities[i].yp == obj.linecrosskludge[j].yp)
 					{
@@ -1167,7 +1167,7 @@ void mapclass::loadlevel(int rx, int ry)
 	int t;
 	if (!finalmode)
 	{
-		explored[rx - 100 + ((ry - 100) * 20)] = 1;
+		setexplored(rx - 100, ry - 100, true);
 		if (rx == 109 && !custommode)
 		{
 			exploretower();
@@ -1183,20 +1183,24 @@ void mapclass::loadlevel(int rx, int ry)
 	obj.vertplatforms = false;
 	obj.horplatforms = false;
 	roomname = "";
+	hiddenname = "";
 	background = 1;
 	warpx = false;
 	warpy = false;
 
 	towermode = false;
 	ypos = 0;
+	oldypos = 0;
 	extrarow = 0;
+	spikeleveltop = 0;
+	spikelevelbottom = 0;
+	oldspikeleveltop = 0;
+	oldspikelevelbottom = 0;
 
 	//Custom stuff for warplines
 	obj.customwarpmode=false;
 	obj.customwarpmodevon=false;
 	obj.customwarpmodehon=false;
-
-	std::vector<std::string> tmap;
 
 	if (finalmode)
 	{
@@ -1238,21 +1242,26 @@ void mapclass::loadlevel(int rx, int ry)
 			{
 				//entered from ground floor
 				int player = obj.getplayer();
-				obj.entities[player].yp += (671 * 8);
+				if (INBOUNDS_VEC(player, obj.entities))
+				{
+					obj.entities[player].yp += (671 * 8);
+				}
 
 				ypos = (700-29) * 8;
-				bypos = ypos / 2;
+				oldypos = ypos;
+				graphics.towerbg.bypos = ypos / 2;
 				cameramode = 0;
-				colstate = 0;
+				graphics.towerbg.colstate = 0;
 				colsuperstate = 0;
 			}
 			else if (ry == 104)
 			{
 				//you've entered from the top floor
 				ypos = 0;
-				bypos = 0;
+				oldypos = ypos;
+				graphics.towerbg.bypos = 0;
 				cameramode = 0;
-				colstate = 0;
+				graphics.towerbg.colstate = 0;
 				colsuperstate = 0;
 			}
 		}
@@ -1300,40 +1309,47 @@ void mapclass::loadlevel(int rx, int ry)
 #if !defined(MAKEANDPLAY)
 	case 0:
 	case 1: //World Map
+	{
 		tileset = 1;
 		extrarow = 1;
-		tmap = otherlevel.loadlevel(rx, ry);
-		fillcontent(tmap);
+		const short* tmap = otherlevel.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = otherlevel.roomname;
 		tileset = otherlevel.roomtileset;
 		//do the appear/remove roomname here
 
-		if (otherlevel.roomtexton)
+		if (game.roomx >= 102 && game.roomx <= 104 && game.roomy >= 110 && game.roomy <= 111)
 		{
-			roomtexton = true;
-			roomtext = std::vector<Roomtext>(otherlevel.roomtext);
+			hiddenname = "The Ship";
+		}
+		else
+		{
+			hiddenname = "Dimension VVVVVV";
 		}
 		break;
+	}
 	case 2: //The Lab
-		tmap = lablevel.loadlevel(rx, ry);
-		fillcontent(tmap);
+	{
+		const short* tmap = lablevel.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = lablevel.roomname;
 		tileset = 1;
 		background = 2;
 		graphics.rcol = lablevel.rcol;
 		break;
+	}
 	case 3: //The Tower
-		tdrawback = true;
+		graphics.towerbg.tdrawback = true;
 		minitowermode = false;
 		tower.minitowermode = false;
-		bscroll = 0;
-		scrolldir = 0;
+		graphics.towerbg.bscroll = 0;
+		graphics.towerbg.scrolldir = 0;
 
 		roomname = "The Tower";
 		tileset = 1;
 		background = 3;
 		towermode = true;
-		//bypos = 0; ypos = 0; cameramode = 0;
+		//graphics.towerbg.bypos = 0; ypos = 0; cameramode = 0;
 
 		//All the entities for here are just loaded here; it's essentially one room after all
 
@@ -1361,8 +1377,9 @@ void mapclass::loadlevel(int rx, int ry)
 		obj.createentity(280, 3216, 9, 8); // (shiny trinket)
 		break;
 	case 4: //The Warpzone
-		tmap = warplevel.loadlevel(rx, ry);
-		fillcontent(tmap);
+	{
+		const short* tmap = warplevel.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = warplevel.roomname;
 		tileset = 1;
 		background = 3;
@@ -1376,19 +1393,22 @@ void mapclass::loadlevel(int rx, int ry)
 		if (warpx) background = 3;
 		if (warpx && warpy) background = 5;
 		break;
+	}
 	case 5: //Space station
-		tmap = spacestation2.loadlevel(rx, ry);
-		fillcontent(tmap);
+	{
+		const short* tmap = spacestation2.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = spacestation2.roomname;
 		tileset = 0;
 		break;
+	}
 	case 6: //final level
-		tmap = finallevel.loadlevel(finalx, finaly);
-		fillcontent(tmap);
+	{
+		const short* tmap = finallevel.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = finallevel.roomname;
 		tileset = 1;
 		background = 3;
-		graphics.rcol = finallevel.rcol;
 		graphics.backgrounddrawn = false;
 
 		if (finalstretch)
@@ -1408,12 +1428,13 @@ void mapclass::loadlevel(int rx, int ry)
 		graphics.rcol = 6;
 		changefinalcol(final_mapcol);
 		break;
+	}
 	case 7: //Final Level, Tower 1
-		tdrawback = true;
+		graphics.towerbg.tdrawback = true;
 		minitowermode = true;
 		tower.minitowermode = true;
-		bscroll = 0;
-		scrolldir = 1;
+		graphics.towerbg.bscroll = 0;
+		graphics.towerbg.scrolldir = 1;
 
 		roomname = "Panic Room";
 		tileset = 1;
@@ -1423,18 +1444,19 @@ void mapclass::loadlevel(int rx, int ry)
 		tower.loadminitower1();
 
 		ypos = 0;
-		bypos = 0;
+		oldypos = 0;
+		graphics.towerbg.bypos = 0;
 		cameramode = 0;
-		colstate = 0;
+		graphics.towerbg.colstate = 0;
 		colsuperstate = 0;
 		break;
 	case 8: //Final Level, Tower 1 (reentered from below)
 	{
-		tdrawback = true;
+		graphics.towerbg.tdrawback = true;
 		minitowermode = true;
 		tower.minitowermode = true;
-		bscroll = 0;
-		scrolldir = 1;
+		graphics.towerbg.bscroll = 0;
+		graphics.towerbg.scrolldir = 1;
 
 		roomname = "Panic Room";
 		tileset = 1;
@@ -1444,23 +1466,26 @@ void mapclass::loadlevel(int rx, int ry)
 		tower.loadminitower1();
 
 		int i = obj.getplayer();
-		obj.entities[i].yp += (71 * 8);
+		if (INBOUNDS_VEC(i, obj.entities))
+		{
+			obj.entities[i].yp += (71 * 8);
+		}
 		game.roomy--;
-		finaly--;
 
 		ypos = (100-29) * 8;
-		bypos = ypos/2;
+		oldypos = ypos;
+		graphics.towerbg.bypos = ypos/2;
 		cameramode = 0;
-		colstate = 0;
+		graphics.towerbg.colstate = 0;
 		colsuperstate = 0;}
 		break;
 	case 9: //Final Level, Tower 2
 	{
-		tdrawback = true;
+		graphics.towerbg.tdrawback = true;
 		minitowermode = true;
 		tower.minitowermode = true;
-		bscroll = 0;
-		scrolldir = 0;
+		graphics.towerbg.bscroll = 0;
+		graphics.towerbg.scrolldir = 0;
 		final_colorframe = 2;
 
 		roomname = "The Final Challenge";
@@ -1485,25 +1510,28 @@ void mapclass::loadlevel(int rx, int ry)
 		obj.createentity(72, 156, 11, 200); // (horizontal gravity line)
 
 		int i = obj.getplayer();
-		obj.entities[i].yp += (71 * 8);
+		if (INBOUNDS_VEC(i, obj.entities))
+		{
+			obj.entities[i].yp += (71 * 8);
+		}
 		game.roomy--;
-		finaly--;
 
 		ypos = (100-29) * 8;
-		bypos = ypos/2;
+		oldypos = ypos;
+		graphics.towerbg.bypos = ypos/2;
 		cameramode = 0;
-		colstate = 0;
+		graphics.towerbg.colstate = 0;
 		colsuperstate = 0;
-	}
 		break;
+	}
 	case 10: //Final Level, Tower 2
 	{
 
-		tdrawback = true;
+		graphics.towerbg.tdrawback = true;
 		minitowermode = true;
 		tower.minitowermode = true;
-		bscroll = 0;
-		scrolldir = 0;
+		graphics.towerbg.bscroll = 0;
+		graphics.towerbg.scrolldir = 0;
 		final_colorframe = 2;
 
 		roomname = "The Final Challenge";
@@ -1528,16 +1556,17 @@ void mapclass::loadlevel(int rx, int ry)
 		obj.createentity(72, 156, 11, 200); // (horizontal gravity line)
 
 		ypos = 0;
-		bypos = 0;
+		oldypos = 0;
+		graphics.towerbg.bypos = 0;
 		cameramode = 0;
-		colstate = 0;
+		graphics.towerbg.colstate = 0;
 		colsuperstate = 0;
-	}
 		break;
+	}
 	case 11: //Tower Hallways //Content is held in final level routine
 	{
-		tmap = finallevel.loadlevel(rx, ry);
-		fillcontent(tmap);
+		const short* tmap = finallevel.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 		roomname = finallevel.roomname;
 		tileset = 2;
 		if (rx == 108)
@@ -1555,184 +1584,240 @@ void mapclass::loadlevel(int rx, int ry)
 			background = 9;
 			rcol = 0;
 		}
-	}
 		break;
+	}
 #endif
 #if !defined(NO_CUSTOM_LEVELS)
 	case 12: //Custom level
-		int curlevel=(rx-100)+((ry-100)*ed.maxwidth);
-		game.customcol=ed.getlevelcol(curlevel)+1;
-		obj.customplatformtile=game.customcol*12;
-		switch(ed.level[curlevel].tileset){
-			case 0: //Space Station
+	{
+		const edlevelclass* const room = ed.getroomprop(rx - 100, ry - 100);
+		game.customcol = ed.getlevelcol(room->tileset, room->tilecol) + 1;
+		obj.customplatformtile = game.customcol * 12;
+
+		switch (room->tileset)
+		{
+		case 0: // Space Station
 			tileset = 0;
 			background = 1;
 			break;
-			case 1: //Outside
+		case 1: // Outside
 			tileset = 1;
 			background = 1;
 			break;
-			case 2: //Lab
+		case 2: // Lab
 			tileset = 1;
 			background = 2;
-			graphics.rcol = ed.level[curlevel].tilecol;
+			graphics.rcol = room->tilecol;
 			break;
-			case 3: //Warp Zone/intermission
+		case 3: // Warp Zone/intermission
 			tileset = 1;
 			background = 6;
 			break;
-			case 4://Ship
+		case 4: // Ship
 			tileset = 1;
 			background = 1;
 			break;
-			default:
+		default:
 			tileset = 1;
 			background = 1;
 			break;
 		}
 
-		//If screen warping, then override all that:
+		// If screen warping, then override all that:
 		bool redrawbg = game.roomx != game.prevroomx || game.roomy != game.prevroomy;
-		if(redrawbg){
+		if (redrawbg)
+		{
 			graphics.backgrounddrawn = false;
 		}
-		if(ed.level[curlevel].warpdir>0){
-			if(ed.level[curlevel].warpdir==1){
-			warpx=true;
-			background=3;
-			graphics.rcol = ed.getwarpbackground(rx-100,ry-100);
-			}else if(ed.level[curlevel].warpdir==2){
-			warpy=true;
-			background=4;
-			graphics.rcol = ed.getwarpbackground(rx-100,ry-100);
-			}else if(ed.level[curlevel].warpdir==3){
-			warpx=true; warpy=true;
+
+		switch (room->warpdir)
+		{
+		case 1:
+			warpx = true;
+			background = 3;
+			graphics.rcol = ed.getwarpbackground(rx - 100, ry - 100);
+			break;
+		case 2:
+			warpy = true;
+			background = 4;
+			graphics.rcol = ed.getwarpbackground(rx - 100, ry - 100);
+			break;
+		case 3:
+			warpx = true;
+			warpy = true;
 			background = 5;
-			graphics.rcol = ed.getwarpbackground(rx-100,ry-100);
-			}
+			graphics.rcol = ed.getwarpbackground(rx - 100, ry - 100);
+			break;
 		}
 
-		roomname="";
-		if(ed.level[curlevel].roomname!=""){
-			roomname=ed.level[curlevel].roomname;
-		}
+		roomname = room->roomname;
 		extrarow = 1;
-		ed.loadlevel(rx, ry);
+		const short* tmap = ed.loadlevel(rx, ry);
+		SDL_memcpy(contents, tmap, sizeof(contents));
 
 
 		roomtexton = false;
 		roomtext.clear();
 
-		for (int edj = 0; edj < 30; edj++){
-			for(int edi = 0; edi < 40; edi++){
-			contents[edi + vmult[edj]] = ed.swapmap[edi + vmult[edj]];
+		// Entities have to be created HERE, akwardly
+		int tempcheckpoints = 0;
+		int tempscriptbox = 0;
+		for (size_t edi = 0; edi < edentity.size(); edi++)
+		{
+			// If entity is in this room, create it
+			const edentities& ent = edentity[edi];
+			const int tsx = ent.x / 40;
+			const int tsy = ent.y / 30;
+
+			if (tsx != rx-100 || tsy != ry-100)
+			{
+				continue;
+			}
+
+			const int ex = (ent.x % 40) * 8;
+			const int ey = (ent.y % 30) * 8;
+
+			// Platform and enemy bounding boxes
+			int bx1 = 0, by1 = 0, bx2 = 0, by2 = 0;
+
+			bool enemy = ent.t == 1;
+			bool moving_plat = ent.t == 2 && ent.p1 <= 4;
+			if (enemy || moving_plat)
+			{
+				if (enemy)
+				{
+					bx1 = room->enemyx1;
+					by1 = room->enemyy1;
+					bx2 = room->enemyx2;
+					by2 = room->enemyy2;
+				}
+				else if (moving_plat)
+				{
+					bx1 = room->platx1;
+					by1 = room->platy1;
+					bx2 = room->platx2;
+					by2 = room->platy2;
+				}
+
+				// Enlarge bounding boxes to fix warping entities
+				if (warpx && bx1 == 0 && bx2 == 320)
+				{
+					bx1 -= 100;
+					bx2 += 100;
+				}
+				if (warpy && by1 == 0 && by2 == 240)
+				{
+					by1 -= 100;
+					by2 += 100;
+				}
+			}
+
+			switch (ent.t)
+			{
+			case 1: // Enemies
+				obj.customenemy = room->enemytype;
+				obj.createentity(ex, ey, 56, ent.p1, 4, bx1, by1, bx2, by2);
+				break;
+			case 2: // Platforms and conveyors
+				if (ent.p1 <= 4)
+				{
+					obj.createentity(ex, ey, 2, ent.p1, room->platv, bx1, by1, bx2, by2);
+				}
+				else if (ent.p1 >= 5 && ent.p1 <= 8) // Conveyor
+				{
+					obj.createentity(ex, ey, 2, ent.p1 + 3, 4);
+				}
+				break;
+			case 3: // Disappearing platforms
+				obj.createentity(ex, ey, 3);
+				break;
+			case 9: // Trinkets
+				obj.createentity(ex, ey, 9, ed.findtrinket(edi));
+				break;
+			case 10: // Checkpoints
+				obj.createentity(ex, ey, 10, ent.p1, (rx + ry*100) * 20 + tempcheckpoints);
+				tempcheckpoints++;
+				break;
+			case 11: // Gravity Lines
+				if (ent.p1 == 0) //Horizontal
+				{
+					obj.createentity(ent.p2 * 8, ey + 4, 11, ent.p3);
+				}
+				else //Vertical
+				{
+					obj.createentity(ex + 3, ent.p2 * 8, 12, ent.p3);
+				}
+				break;
+			case 13: // Warp Tokens
+				obj.createentity(ex, ey, 13, ent.p1, ent.p2);
+				break;
+			case 15: // Collectable crewmate
+				obj.createentity(ex - 4, ey + 1, 55, ed.findcrewmate(edi), ent.p1, ent.p2);
+				break;
+			case 17: // Roomtext!
+			{
+				roomtexton = true;
+				Roomtext text;
+				text.x = ex / 8;
+				text.y = ey / 8;
+				text.text = ent.scriptname;
+				roomtext.push_back(text);
+				break;
+			}
+			case 18: // Terminals
+			{
+				obj.customscript = ent.scriptname;
+
+				int usethistile = ent.p1;
+				int usethisy = ey;
+
+				// This isn't a boolean: we just swap 0 and 1 around and leave the rest alone
+				if (usethistile == 0)
+				{
+					usethistile = 1; // Unflipped
+				}
+				else if (usethistile == 1)
+				{
+					usethistile = 0; // Flipped;
+					usethisy -= 8;
+				}
+
+				obj.createentity(ex, usethisy + 8, 20, usethistile);
+				obj.createblock(ACTIVITY, ex - 8, usethisy + 8, 20, 16, 35);
+				break;
+			}
+			case 19: //Script Box
+				if (INBOUNDS_ARR(tempscriptbox, game.customscript))
+				{
+					game.customscript[tempscriptbox] = ent.scriptname;
+				}
+				obj.createblock(TRIGGER, ex, ey, ent.p1 * 8, ent.p2 * 8, 300 + tempscriptbox, "custom_" + ent.scriptname);
+				tempscriptbox++;
+				break;
+			case 50: // Warp Lines
+				obj.customwarpmode=true;
+				switch (ent.p1)
+				{
+				case 0: // Vertical, left
+					obj.createentity(ex + 4, ent.p2 * 8, 51, ent.p3);
+					break;
+				case 1: //Horizontal, right
+					obj.createentity(ex + 4, ent.p2 * 8, 52, ent.p3);
+					break;
+				case 2: //Vertical, top
+					obj.createentity(ent.p2 * 8, ey + 7, 53, ent.p3);
+					break;
+				case 3: // Horizontal, bottom
+					obj.createentity(ent.p2 * 8, ey, 54, ent.p3);
+					break;
+				}
+				break;
 			}
 		}
 
-		//Entities have to be created HERE, akwardly
-		int tempcheckpoints=0;
-		int tempscriptbox=0;
-		for(size_t edi=0; edi<edentity.size(); edi++){
-			//If entity is in this room, create it
-			int tsx=(edentity[edi].x-(edentity[edi].x%40))/40;
-			int tsy=(edentity[edi].y-(edentity[edi].y%30))/30;
-			if(tsx==rx-100 && tsy==ry-100){
-			switch(edentity[edi].t){
-				case 1: //Enemies
-				int bx1, by1, bx2, by2;
-				bx1=ed.level[rx-100+((ry-100)*ed.maxwidth)].enemyx1;
-				by1=ed.level[rx-100+((ry-100)*ed.maxwidth)].enemyy1;
-				bx2=ed.level[rx-100+((ry-100)*ed.maxwidth)].enemyx2;
-				by2=ed.level[rx-100+((ry-100)*ed.maxwidth)].enemyy2;
-
-				if(warpx){ if(bx1==0 && bx2==320){ bx1=-100; bx2=420; } }
-				if(warpy){ if(by1==0 && by2==240){ by1=-100; by2=340; } }
-
-				obj.customenemy=ed.level[tsx+((ed.maxwidth)*tsy)].enemytype;
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 56,
-				edentity[edi].p1, 4, bx1, by1, bx2, by2);
-				break;
-				case 2: //Platforms and Threadmills
-				if(edentity[edi].p1<=4){
-					int bx1, by1, bx2, by2;
-					bx1=ed.level[rx-100+((ry-100)*ed.maxwidth)].platx1;
-					by1=ed.level[rx-100+((ry-100)*ed.maxwidth)].platy1;
-					bx2=ed.level[rx-100+((ry-100)*ed.maxwidth)].platx2;
-					by2=ed.level[rx-100+((ry-100)*ed.maxwidth)].platy2;
-
-					if(warpx){ if(bx1==0 && bx2==320){ bx1=-100; bx2=420; } }
-					if(warpy){ if(by1==0 && by2==240){ by1=-100; by2=340; } }
-
-					obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 2,
-					edentity[edi].p1, ed.level[rx-100+((ry-100)*ed.mapwidth)].platv, bx1, by1, bx2, by2);
-				}else if(edentity[edi].p1>=5 && edentity[edi].p1<=8){ //Threadmill
-					obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 2,
-					edentity[edi].p1+3, 4);
-				}
-				break;
-				case 3: //Disappearing platforms
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 3);
-				break;
-				case 9:
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 9, ed.findtrinket(edi));
-				break;
-				case 10: //Checkpoints
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 10,
-				edentity[edi].p1,((rx+(ry*100))*20)+tempcheckpoints);
-				tempcheckpoints++;
-				break;
-				case 11: //Gravity Lines
-				if(edentity[edi].p1==0){ //Horizontal
-					obj.createentity((edentity[edi].p2*8),(edentity[edi].y*8)- ((ry-100)*30*8)+4, 11, edentity[edi].p3);
-				}else{ //Vertical
-					obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8)+3,(edentity[edi].p2*8), 12, edentity[edi].p3);
-				}
-				break;
-				case 13: //Warp Tokens
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8), 13, edentity[edi].p1, edentity[edi].p2);
-				break;
-				case 15: //Collectable crewmate
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8)-4,(edentity[edi].y*8)- ((ry-100)*30*8)+1, 55, ed.findcrewmate(edi), edentity[edi].p1, edentity[edi].p2);
-				break;
-				case 17: //Roomtext!
-				{
-				roomtexton = true;
-				Roomtext text;
-				text.x = edentity[edi].x - ((rx-100)*40);
-				text.y = edentity[edi].y - ((ry-100)*30);
-				text.text = edentity[edi].scriptname;
-				roomtext.push_back(text);
-				break;
-				}
-				case 18: //Terminals
-				obj.customscript=edentity[edi].scriptname;
-				obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8),(edentity[edi].y*8)- ((ry-100)*30*8)+8, 20, 1);
-				obj.createblock(5, (edentity[edi].x*8)- ((rx-100)*40*8)-8, (edentity[edi].y*8)- ((ry-100)*30*8)+8, 20, 16, 35);
-				break;
-				case 19: //Script Box
-				game.customscript[tempscriptbox]=edentity[edi].scriptname;
-				obj.createblock(1, (edentity[edi].x*8)- ((rx-100)*40*8), (edentity[edi].y*8)- ((ry-100)*30*8),
-								edentity[edi].p1*8, edentity[edi].p2*8, 300+tempscriptbox);
-				tempscriptbox++;
-				break;
-				case 50: //Warp Lines
-				obj.customwarpmode=true;
-				if(edentity[edi].p1==0){ //
-					obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8)+4,(edentity[edi].p2*8), 51, edentity[edi].p3);
-				}else if(edentity[edi].p1==1){ //Horizontal, right
-					obj.createentity((edentity[edi].x*8)- ((rx-100)*40*8)+4,(edentity[edi].p2*8), 52, edentity[edi].p3);
-				}else if(edentity[edi].p1==2){ //Vertical, top
-					obj.createentity((edentity[edi].p2*8),(edentity[edi].y*8)- ((ry-100)*30*8)+7, 53, edentity[edi].p3);
-				}else if(edentity[edi].p1==3){
-					obj.createentity((edentity[edi].p2*8),(edentity[edi].y*8)- ((ry-100)*30*8), 54, edentity[edi].p3);
-				}
-				break;
-			}
-			}
-			}
-
 		//do the appear/remove roomname here
 		break;
+	}
 #endif
 	}
 	//The room's loaded: now we fill out damage blocks based on the tiles.
@@ -1824,8 +1909,8 @@ void mapclass::loadlevel(int rx, int ry)
 			if (obj.entities[i].type == 1 && obj.entities[i].behave >= 8 && obj.entities[i].behave < 10)
 			{
 				//put a block underneath
-				temp = obj.entities[i].xp / 8.0f;
-				temp2 = obj.entities[i].yp / 8.0f;
+				int temp = obj.entities[i].xp / 8.0f;
+				int temp2 = obj.entities[i].yp / 8.0f;
 				settile(temp, temp2, 1);
 				settile(temp+1, temp2, 1);
 				settile(temp+2, temp2, 1);
@@ -1948,33 +2033,44 @@ void mapclass::loadlevel(int rx, int ry)
 			{
 				//A slight varation - she's upside down
 				obj.createentity(249, 62, 18, 16, 0, 18);
-				j = obj.getcrewman(5);
-				obj.entities[j].rule = 7;
-				obj.entities[j].tile +=6;
+				int j = obj.getcrewman(5);
+				if (INBOUNDS_VEC(j, obj.entities))
+				{
+					obj.entities[j].rule = 7;
+					obj.entities[j].tile +=6;
+				}
 				//What script do we use?
 				obj.createblock(5, 249-32, 0, 32+32+32, 240, 5);
 			}
 		}
 	}
+}
 
-	//Make sure our crewmates are facing the player if appliciable
-	for (size_t i = 0; i < obj.entities.size(); i++)
+void mapclass::twoframedelayfix(void)
+{
+	// Fixes the two-frame delay in custom levels that use scripts to spawn an entity upon room load.
+	// Because when the room loads and newscript is set to run, newscript has already ran for that frame,
+	// and when the script gets loaded script.run() has already ran for that frame, too.
+	// A bit kludge-y, but it's the least we can do without changing the frame ordering.
+
+	if (game.glitchrunnermode
+	|| !custommode
+	|| game.deathseq != -1)
+		return;
+
+	int block_idx = -1;
+	// obj.checktrigger() sets block_idx
+	int activetrigger = obj.checktrigger(&block_idx);
+	if (activetrigger <= -1
+	|| !INBOUNDS_VEC(block_idx, obj.blocks)
+	|| activetrigger < 300)
 	{
-		if (obj.entities[i].rule == 6 || obj.entities[i].rule == 7)
-		{
-			if (obj.entities[i].state == 18)
-			{
-				//face the player
-				j = obj.getplayer();
-				if (obj.entities[j].xp > obj.entities[i].xp + 5)
-				{
-					obj.entities[i].dir = 1;
-				}
-				else if (obj.entities[j].xp < obj.entities[i].xp - 5)
-				{
-					obj.entities[i].dir = 0;
-				}
-			}
-		}
+		return;
 	}
+
+	game.newscript = obj.blocks[block_idx].script;
+	obj.removetrigger(activetrigger);
+	game.state = 0;
+	game.statedelay = 0;
+	script.load(game.newscript);
 }

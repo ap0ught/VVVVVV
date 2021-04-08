@@ -1,32 +1,44 @@
 #include "Textbox.h"
+
 #include <utf8/unchecked.h>
 
-textboxclass::textboxclass()
+textboxclass::textboxclass(void)
 {
-    x = 0;
-    y = 0;
     w = 0;
     h = 0;
     lw = 0;
     tl = 0;
+    prev_tl = 0;
     tm = 0;
     timer = 0;
+
+    xp = 0;
+    yp = 0;
+    r = 0;
+    g = 0;
+    b = 0;
+    tr = 0;
+    tg = 0;
+    tb = 0;
+    max = 0;
+
+    flipme = false;
 }
 
-void textboxclass::centerx()
+void textboxclass::centerx(void)
 {
     resize();
     xp = 160 - (w / 2);
     resize();
 }
-void textboxclass::centery()
+void textboxclass::centery(void)
 {
     resize();
     yp = 120 - (h / 2);
     resize();
 }
 
-void textboxclass::adjust()
+void textboxclass::adjust(void)
 {
     resize();
     if (xp < 10) xp = 10;
@@ -54,8 +66,9 @@ void textboxclass::setcol(int rr, int gg, int bb)
     b = bb;
 }
 
-void textboxclass::update()
+void textboxclass::update(void)
 {
+    prev_tl = tl;
     if (tm == 0)
     {
         tl += .1f;
@@ -64,7 +77,6 @@ void textboxclass::update()
             tl = 1;
             tm = 1;
         }
-        setcol(int(tr * tl), int(tg * tl), int(tb * tl));
     }
     else if (tm == 2)
     {
@@ -72,9 +84,8 @@ void textboxclass::update()
         if (tl <= 0.5)
         {
             tl = 0.5;
-            //this textbox will be removed by drawgui() later
+            //this textbox will be removed by updatetextboxes() later
         }
-        setcol(int(tr * tl), int(tg * tl), int(tb * tl));
     }
     if (timer > 0)
     {
@@ -83,19 +94,19 @@ void textboxclass::update()
     }
 }
 
-void textboxclass::remove()
+void textboxclass::remove(void)
 {
     tm = 2;
     tl = 1.0f; //Remove mode
 }
 
-void textboxclass::removefast()
+void textboxclass::removefast(void)
 {
     tm = 2;
     tl = 0.4f; //Remove mode
 }
 
-void textboxclass::resize()
+void textboxclass::resize(void)
 {
     //Set the width and height to the correct sizes
     max = 0;
@@ -108,10 +119,6 @@ void textboxclass::resize()
     lw = max;
     w = (max +2) * 8;
     h = (line.size() + 2) * 8;
-    textrect.x = xp;
-    textrect.y = yp;
-    textrect.w = w;
-    textrect.h = h;
 }
 
 void textboxclass::addline(std::string t)
